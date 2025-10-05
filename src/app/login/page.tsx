@@ -3,14 +3,13 @@
 import {
   GoogleAuthProvider,
   signInWithPopup,
-  User,
 } from 'firebase/auth';
 import { auth } from '@/lib/firebase/config';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/components/providers/auth-provider';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
-import { Check, ChromeIcon } from 'lucide-react';
+import { ChromeIcon, ListTodo } from 'lucide-react';
 import Link from 'next/link';
 
 export default function LoginPage() {
@@ -43,13 +42,14 @@ export default function LoginPage() {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
-      <div className="w-full max-w-md space-y-8">
+      <div className="w-full max-w-sm space-y-6">
         <div className="text-center">
-          <h1 className="font-headline text-5xl font-bold text-primary">TaskMaster Pro</h1>
-          <p className="mt-2 text-lg text-muted-foreground">Focus on what matters most.</p>
+          <ListTodo className="mx-auto h-12 w-12 text-primary" />
+          <h1 className="mt-4 font-headline text-4xl font-bold text-primary">TaskMaster Pro</h1>
+          <p className="mt-2 text-lg text-muted-foreground">Welcome Back</p>
         </div>
-        <div className="rounded-lg border bg-card p-8 shadow-sm">
-          <div className="space-y-6">
+        <div className="rounded-lg border bg-card p-6 shadow-sm">
+          <div className="space-y-4">
             <Button
               onClick={handleSignIn}
               className="w-full"
@@ -58,21 +58,7 @@ export default function LoginPage() {
               <ChromeIcon className="mr-2 h-5 w-5" />
               Sign in with Google
             </Button>
-            <ul className="space-y-2 text-sm text-muted-foreground">
-                <li className="flex items-center gap-2">
-                    <Check className="h-4 w-4 text-primary" />
-                    <span>Full CRUD for tasks</span>
-                </li>
-                <li className="flex items-center gap-2">
-                    <Check className="h-4 w-4 text-primary" />
-                    <span>Filter by status and sort by due date</span>
-                </li>
-                <li className="flex items-center gap-2">
-                    <Check className="h-4 w-4 text-primary" />
-                    <span>Secure authentication with Firebase</span>
-                </li>
-            </ul>
-             <p className="text-center text-sm">
+             <p className="text-center text-sm text-muted-foreground">
               Don't have an account?{' '}
               <Link href="/register" className="font-semibold text-primary hover:underline">
                 Register
@@ -80,9 +66,6 @@ export default function LoginPage() {
             </p>
           </div>
         </div>
-        <p className="text-center text-xs text-muted-foreground">
-            A simplified MERN-stack experience powered by Next.js and Firebase.
-        </p>
       </div>
     </div>
   );

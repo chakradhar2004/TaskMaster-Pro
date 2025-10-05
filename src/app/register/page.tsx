@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/components/providers/auth-provider';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
-import { Check, ChromeIcon } from 'lucide-react';
+import { ChromeIcon, ListTodo } from 'lucide-react';
 import Link from 'next/link';
 
 export default function RegisterPage() {
@@ -42,13 +42,14 @@ export default function RegisterPage() {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
-      <div className="w-full max-w-md space-y-8">
+      <div className="w-full max-w-sm space-y-6">
         <div className="text-center">
-          <h1 className="font-headline text-5xl font-bold text-primary">Create an Account</h1>
+          <ListTodo className="mx-auto h-12 w-12 text-primary" />
+          <h1 className="mt-4 font-headline text-4xl font-bold text-primary">Create an Account</h1>
           <p className="mt-2 text-lg text-muted-foreground">Get started with TaskMaster Pro.</p>
         </div>
-        <div className="rounded-lg border bg-card p-8 shadow-sm">
-          <div className="space-y-6">
+        <div className="rounded-lg border bg-card p-6 shadow-sm">
+          <div className="space-y-4">
             <Button
               onClick={handleSignUp}
               className="w-full"
@@ -57,21 +58,7 @@ export default function RegisterPage() {
               <ChromeIcon className="mr-2 h-5 w-5" />
               Sign up with Google
             </Button>
-            <ul className="space-y-2 text-sm text-muted-foreground">
-                <li className="flex items-center gap-2">
-                    <Check className="h-4 w-4 text-primary" />
-                    <span>Full CRUD for tasks</span>
-                </li>
-                <li className="flex items-center gap-2">
-                    <Check className="h-4 w-4 text-primary" />
-                    <span>Filter by status and sort by due date</span>
-                </li>
-                <li className="flex items-center gap-2">
-                    <Check className="h-4 w-4 text-primary" />
-                    <span>Secure authentication with Firebase</span>
-                </li>
-            </ul>
-             <p className="text-center text-sm">
+             <p className="text-center text-sm text-muted-foreground">
               Already have an account?{' '}
               <Link href="/login" className="font-semibold text-primary hover:underline">
                 Login
@@ -79,9 +66,6 @@ export default function RegisterPage() {
             </p>
           </div>
         </div>
-         <p className="text-center text-xs text-muted-foreground">
-            A simplified MERN-stack experience powered by Next.js and Firebase.
-        </p>
       </div>
     </div>
   );
