@@ -3,7 +3,6 @@
 import {
   GoogleAuthProvider,
   signInWithPopup,
-  User,
 } from 'firebase/auth';
 import { auth } from '@/lib/firebase/config';
 import { Button } from '@/components/ui/button';
@@ -13,7 +12,7 @@ import { useEffect } from 'react';
 import { Check, ChromeIcon } from 'lucide-react';
 import Link from 'next/link';
 
-export default function LoginPage() {
+export default function RegisterPage() {
   const { user, loading } = useAuth();
   const router = useRouter();
 
@@ -23,40 +22,40 @@ export default function LoginPage() {
     }
   }, [user, router]);
 
-  const handleSignIn = async () => {
+  const handleSignUp = async () => {
     const provider = new GoogleAuthProvider();
     try {
       await signInWithPopup(auth, provider);
       router.push('/');
     } catch (error) {
-      console.error('Error signing in with Google', error);
+      console.error('Error signing up with Google', error);
     }
   };
-  
+
   if (loading || user) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
         <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent" />
       </div>
-    )
+    );
   }
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
       <div className="w-full max-w-md space-y-8">
         <div className="text-center">
-          <h1 className="font-headline text-5xl font-bold text-primary">TaskMaster Pro</h1>
-          <p className="mt-2 text-lg text-muted-foreground">Focus on what matters most.</p>
+          <h1 className="font-headline text-5xl font-bold text-primary">Create an Account</h1>
+          <p className="mt-2 text-lg text-muted-foreground">Get started with TaskMaster Pro.</p>
         </div>
         <div className="rounded-lg border bg-card p-8 shadow-sm">
           <div className="space-y-6">
             <Button
-              onClick={handleSignIn}
+              onClick={handleSignUp}
               className="w-full"
               size="lg"
             >
               <ChromeIcon className="mr-2 h-5 w-5" />
-              Sign in with Google
+              Sign up with Google
             </Button>
             <ul className="space-y-2 text-sm text-muted-foreground">
                 <li className="flex items-center gap-2">
@@ -73,14 +72,14 @@ export default function LoginPage() {
                 </li>
             </ul>
              <p className="text-center text-sm">
-              Don't have an account?{' '}
-              <Link href="/register" className="font-semibold text-primary hover:underline">
-                Register
+              Already have an account?{' '}
+              <Link href="/login" className="font-semibold text-primary hover:underline">
+                Login
               </Link>
             </p>
           </div>
         </div>
-        <p className="text-center text-xs text-muted-foreground">
+         <p className="text-center text-xs text-muted-foreground">
             A simplified MERN-stack experience powered by Next.js and Firebase.
         </p>
       </div>
