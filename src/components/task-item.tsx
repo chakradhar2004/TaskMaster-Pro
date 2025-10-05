@@ -26,6 +26,7 @@ import {
 } from './ui/dropdown-menu';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { Timestamp } from 'firebase/firestore';
 
 type TaskItemProps = {
   task: Task;
@@ -51,6 +52,16 @@ export default function TaskItem({
   const handleQuickComplete = () => {
     onStatusChange(task, isCompleted ? 'To Do' : 'Completed');
   };
+
+  const getDueDate = () => {
+    if (!task.dueDate) return null;
+    // It might be a string or a Timestamp, so we need to handle both
+    if (task.dueDate instanceof Timestamp) {
+      return task.dueDate.toDate();
+    }
+    return new Date(task.dueDate);
+  }
+  const dueDate = getDueDate();
 
   return (
     <Card className={cn('flex flex-col transition-all hover:shadow-md', isCompleted && 'bg-muted/60')}>
@@ -100,13 +111,13 @@ export default function TaskItem({
       </CardHeader>
       <CardContent className="flex-grow"></CardContent>
       <CardFooter className="flex justify-between items-center text-sm">
-        <Badge variant={isCompleted ? "secondary" : "outline"} className={cn(!isCompleted && statusColors[task.status], 'text-white')}>
+        <Badge variant={isCompleted ? "secondary" : "outline"} className={cn(!isCompleted && statusColors[task.status], !isCompleted && 'text-white')}>
           {task.status}
         </Badge>
-        {task.dueDate && (
+        {dueDate && (
           <div className="flex items-center gap-1 text-muted-foreground">
             <CalendarIcon className="h-4 w-4" />
-            <span>{format(new Date(task.dueDate), 'MMM d, yyyy')}</span>
+            <span>{format(dueDate, 'MMM d, yyyy')}</span>
           </div>
         )}
       </CardFooter>

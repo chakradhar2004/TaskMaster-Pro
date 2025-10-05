@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useAuth } from './providers/auth-provider';
+import { useFirestore, useUser, addDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { CreateTaskSchema, type CreateTask, type Task, taskStatus } from '@/types';
 import {
@@ -37,15 +37,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from './ui/select';
+import { collection, doc, serverTimestamp } from 'firebase/firestore';
 
 type TaskDialogProps = {
   isOpen: boolean;
-  onClose: (refresh: boolean) => void;
+  onClose: () => void;
   task: Task | null;
 };
 
 export default function TaskDialog({ isOpen, onClose, task }: TaskDialogProps) {
-  const { idToken } = useAuth();
+  const { user } = useUser();
+  const firestore = useFirestore();
   const { toast } = useToast();
 
   const form = useForm<CreateTask>({
@@ -59,59 +61,63 @@ export default function TaskDialog({ isOpen, onClose, task }: TaskDialogProps) {
   });
 
   useEffect(() => {
-    if (task) {
-      form.reset({
-        title: task.title,
-        description: task.description,
-        status: task.status,
-        dueDate: task.dueDate ? new Date(task.dueDate) : null,
-      });
-    } else {
-      form.reset({
-        title: '',
-        description: '',
-        status: 'To Do',
-        dueDate: null,
-      });
+    if (isOpen) {
+      if (task) {
+        form.reset({
+          title: task.title,
+          description: task.description ?? '',
+          status: task.status,
+          dueDate: task.dueDate ? new Date(task.dueDate) : null,
+        });
+      } else {
+        form.reset({
+          title: '',
+          description: '',
+          status: 'To Do',
+          dueDate: null,
+        });
+      }
     }
   }, [task, form, isOpen]);
 
   const onSubmit = async (data: CreateTask) => {
-    if (!idToken) return;
-    const url = task ? `/api/tasks/${task.id}` : '/api/tasks';
-    const method = task ? 'PUT' : 'POST';
+    if (!user) return;
 
     try {
-      const response = await fetch(url, {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${idToken}`,
-        },
-        body: JSON.stringify(data),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to ${task ? 'update' : 'create'} task`);
+      if (task) {
+        // Update existing task
+        const taskRef = doc(firestore, 'users', user.uid, 'tasks', task.id);
+        updateDocumentNonBlocking(taskRef, {
+            ...data,
+            dueDate: data.dueDate ? data.dueDate.toISOString() : null
+        });
+      } else {
+        // Create new task
+        const tasksCollectionRef = collection(firestore, 'users', user.uid, 'tasks');
+        await addDocumentNonBlocking(tasksCollectionRef, {
+          ...data,
+          createdAt: serverTimestamp(),
+          dueDate: data.dueDate ? data.dueDate.toISOString() : null
+        });
       }
 
       toast({
         title: 'Success!',
         description: `Task has been ${task ? 'updated' : 'created'}.`,
       });
-      onClose(true);
+      onClose();
     } catch (error) {
       toast({
         title: 'Error',
         description: `Could not ${task ? 'update' : 'create'} task.`,
         variant: 'destructive',
       });
-      onClose(false);
+      onClose();
     }
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose(false)}>
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle className="font-headline">
@@ -206,7 +212,7 @@ export default function TaskDialog({ isOpen, onClose, task }: TaskDialogProps) {
                       <PopoverContent className="w-auto p-0" align="start">
                         <Calendar
                           mode="single"
-                          selected={field.value || undefined}
+                          selected={field.value}
                           onSelect={field.onChange}
                           disabled={(date) => date < new Date(new Date().setHours(0,0,0,0))}
                           initialFocus
@@ -219,7 +225,7 @@ export default function TaskDialog({ isOpen, onClose, task }: TaskDialogProps) {
               />
             </div>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => onClose(false)}>
+              <Button type="button" variant="outline" onClick={() => onClose()}>
                 Cancel
               </Button>
               <Button type="submit" disabled={form.formState.isSubmitting}>

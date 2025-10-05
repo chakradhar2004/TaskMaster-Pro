@@ -1,6 +1,6 @@
 'use client';
 
-import { useAuth } from '@/components/providers/auth-provider';
+import { useAuth, useDoc, useFirebase, useMemoFirebase } from '@/firebase';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import {
@@ -11,14 +11,24 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { auth } from '@/lib/firebase/config';
 import { LogOut, LayoutList } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { doc } from 'firebase/firestore';
+import type { UserProfile } from '@/types';
 
 export default function Header() {
-  const { user, loading } = useAuth();
+  const { user, isUserLoading } = useFirebase();
+  const auth = useAuth();
+  const firestore = useFirebase().firestore;
   const router = useRouter();
+
+  const userProfileRef = useMemoFirebase(() => {
+    if (!firestore || !user) return null;
+    return doc(firestore, 'users', user.uid);
+  }, [firestore, user]);
+
+  const { data: userProfile } = useDoc<UserProfile>(userProfileRef);
 
   const handleLogout = async () => {
     await auth.signOut();
@@ -37,22 +47,22 @@ export default function Header() {
         <span className="font-headline text-2xl font-semibold tracking-tighter">TaskMaster Pro</span>
       </Link>
       <div className="ml-auto">
-        {loading ? (
+        {isUserLoading ? (
           <div className="h-8 w-8 animate-pulse rounded-full bg-muted" />
         ) : user ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="relative h-9 w-9 rounded-full">
                 <Avatar className="h-9 w-9">
-                  <AvatarImage src={user.photoURL ?? ''} alt={user.displayName ?? 'User'} />
-                  <AvatarFallback>{getInitials(user.displayName)}</AvatarFallback>
+                  <AvatarImage src={user.photoURL ?? ''} alt={userProfile?.username ?? 'User'} />
+                  <AvatarFallback>{getInitials(userProfile?.username)}</AvatarFallback>
                 </Avatar>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent className="w-56" align="end" forceMount>
               <DropdownMenuLabel className="font-normal">
                 <div className="flex flex-col space-y-1">
-                  <p className="text-sm font-medium leading-none">{user.displayName}</p>
+                  <p className="text-sm font-medium leading-none">{userProfile?.username}</p>
                   <p className="text-xs leading-none text-muted-foreground">{user.email}</p>
                 </div>
               </DropdownMenuLabel>

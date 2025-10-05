@@ -1,9 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuth } from '@/components/providers/auth-provider';
-import type { Task, TaskStatus, UpdateTask } from '@/types';
+import { useCollection, useFirebase, useFirestore, useMemoFirebase, useUser, addDocumentNonBlocking, deleteDocumentNonBlocking, updateDocumentNonBlocking } from '@/firebase';
+import type { Task, TaskStatus } from '@/types';
 import TaskList from './task-list';
 import { Button } from './ui/button';
 import { ArrowUpDown, Filter, PlusCircle } from 'lucide-react';
@@ -18,129 +18,79 @@ import {
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import { taskStatus } from '@/types';
+import { collection, doc } from 'firebase/firestore';
 
 export default function TaskDashboard() {
-  const { user, loading, idToken } = useAuth();
+  const { user, isUserLoading } = useUser();
   const router = useRouter();
   const { toast } = useToast();
+  const firestore = useFirestore();
 
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
 
   const [statusFilters, setStatusFilters] = useState<Set<TaskStatus>>(new Set(taskStatus));
   const [sortAsc, setSortAsc] = useState(true);
 
-  const fetchTasks = useCallback(async () => {
-    if (!idToken) return;
-    setIsLoading(true);
-    try {
-      const response = await fetch('/api/tasks', {
-        headers: { Authorization: `Bearer ${idToken}` },
-      });
-      if (!response.ok) throw new Error('Failed to fetch tasks');
-      const data = await response.json();
-      setTasks(data);
-    } catch (error) {
-      toast({
-        title: 'Error',
-        description: 'Could not fetch your tasks. Please try again.',
-        variant: 'destructive',
-      });
-    } finally {
-      setIsLoading(false);
-    }
-  }, [idToken, toast]);
+  const tasksCollectionRef = useMemoFirebase(() => {
+    if (!firestore || !user) return null;
+    return collection(firestore, 'users', user.uid, 'tasks');
+  }, [firestore, user]);
 
-  useEffect(() => {
-    if (loading) return;
-    if (!user) {
-      router.push('/login');
-      return;
-    }
-    fetchTasks();
-  }, [user, loading, router, fetchTasks]);
+  const { data: tasks, isLoading: isLoadingTasks, error } = useCollection<Task>(tasksCollectionRef);
+
+  if (error) {
+    // This will be caught by the FirebaseErrorListener
+  }
 
   const handleOpenDialog = (task: Task | null = null) => {
     setEditingTask(task);
     setIsDialogOpen(true);
   };
 
-  const handleDialogClose = (refresh: boolean) => {
+  const handleDialogClose = () => {
     setIsDialogOpen(false);
     setEditingTask(null);
-    if (refresh) {
-      fetchTasks();
-    }
   };
 
   const handleDeleteTask = async (taskId: string) => {
-    if (!idToken) return;
-    try {
-      const response = await fetch(`/api/tasks/${taskId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${idToken}` },
-      });
-      if (!response.ok) throw new Error('Failed to delete task');
-      toast({ title: 'Success', description: 'Task deleted successfully.' });
-      fetchTasks();
-    } catch (error) {
-      toast({
-        title: 'Error',
-        description: 'Could not delete the task.',
-        variant: 'destructive',
-      });
-    }
+    if (!user) return;
+    const taskRef = doc(firestore, 'users', user.uid, 'tasks', taskId);
+    deleteDocumentNonBlocking(taskRef);
+    toast({ title: 'Success', description: 'Task deleted successfully.' });
   };
 
   const handleUpdateTaskStatus = async (task: Task, newStatus: TaskStatus) => {
-     if (!idToken) return;
-     const optimisticTasks = tasks.map(t => t.id === task.id ? {...t, status: newStatus} : t);
-     setTasks(optimisticTasks);
-     
-     try {
-       const response = await fetch(`/api/tasks/${task.id}`, {
-         method: 'PUT',
-         headers: {
-           'Content-Type': 'application/json',
-           Authorization: `Bearer ${idToken}`,
-         },
-         body: JSON.stringify({ status: newStatus }),
-       });
- 
-       if (!response.ok) throw new Error('Failed to update task status');
-       
-       // Optional: refetch for data consistency, or rely on optimistic update
-       // fetchTasks(); 
-     } catch (error) {
-       toast({
-         title: 'Error',
-         description: 'Could not update task status.',
-         variant: 'destructive',
-       });
-       setTasks(tasks); // Revert optimistic update
-     }
+     if (!user) return;
+     const taskRef = doc(firestore, 'users', user.uid, 'tasks', task.id);
+     updateDocumentNonBlocking(taskRef, { status: newStatus });
   };
 
   const filteredAndSortedTasks = useMemo(() => {
+    if (!tasks) return [];
     return tasks
       .filter((task) => statusFilters.has(task.status))
       .sort((a, b) => {
-        if (!a.dueDate) return 1;
-        if (!b.dueDate) return -1;
-        const timeA = new Date(a.dueDate).getTime();
-        const timeB = new Date(b.dueDate).getTime();
-        return sortAsc ? timeA - timeB : timeB - timeA;
+        const timeA = a.dueDate ? new Date(a.dueDate).getTime() : Infinity;
+        const timeB = b.dueDate ? new Date(b.dueDate).getTime() : Infinity;
+        if (sortAsc) {
+          return timeA - timeB;
+        }
+        return timeB - timeA;
       });
   }, [tasks, statusFilters, sortAsc]);
-
-  if (loading || (!user && !loading)) {
+  
+  if (isUserLoading) {
     return (
       <div className="flex h-[calc(100vh-10rem)] w-full items-center justify-center">
         <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent" />
       </div>
     );
+  }
+
+  if (!user) {
+    router.push('/login');
+    return null;
   }
 
   return (
@@ -190,7 +140,7 @@ export default function TaskDashboard() {
       </div>
       <TaskList
         tasks={filteredAndSortedTasks}
-        isLoading={isLoading}
+        isLoading={isLoadingTasks}
         onEdit={handleOpenDialog}
         onDelete={handleDeleteTask}
         onStatusChange={handleUpdateTaskStatus}

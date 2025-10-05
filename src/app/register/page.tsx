@@ -1,20 +1,44 @@
 'use client';
 
-import {
-  GoogleAuthProvider,
-  signInWithPopup,
-} from 'firebase/auth';
-import { auth } from '@/lib/firebase/config';
-import { Button } from '@/components/ui/button';
-import { useAuth } from '@/components/providers/auth-provider';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+import { useAuth, useFirestore, useUser } from '@/firebase';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
-import { ChromeIcon, ListTodo } from 'lucide-react';
+import { ListTodo } from 'lucide-react';
 import Link from 'next/link';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { doc, setDoc } from 'firebase/firestore';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
+import { useToast } from '@/hooks/use-toast';
+import { setDocumentNonBlocking } from '@/firebase';
+
+const RegisterSchema = z.object({
+  username: z.string().min(3, 'Username must be at least 3 characters'),
+  email: z.string().email('Invalid email address'),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
+});
+
+type RegisterFormValues = z.infer<typeof RegisterSchema>;
 
 export default function RegisterPage() {
-  const { user, loading } = useAuth();
+  const auth = useAuth();
+  const firestore = useFirestore();
+  const { user, isUserLoading } = useUser();
   const router = useRouter();
+  const { toast } = useToast();
+
+  const form = useForm<RegisterFormValues>({
+    resolver: zodResolver(RegisterSchema),
+    defaultValues: {
+      username: '',
+      email: '',
+      password: '',
+    },
+  });
 
   useEffect(() => {
     if (user) {
@@ -22,17 +46,35 @@ export default function RegisterPage() {
     }
   }, [user, router]);
 
-  const handleSignUp = async () => {
-    const provider = new GoogleAuthProvider();
+  const handleSignUp = async (values: RegisterFormValues) => {
     try {
-      await signInWithPopup(auth, provider);
+      const userCredential = await createUserWithEmailAndPassword(auth, values.email, values.password);
+      const user = userCredential.user;
+
+      // Save user profile to Firestore
+      const userRef = doc(firestore, 'users', user.uid);
+      setDocumentNonBlocking(userRef, {
+        username: values.username,
+        email: values.email,
+      }, {});
+
+      toast({
+        title: 'Success!',
+        description: 'Your account has been created.',
+      });
+
       router.push('/');
-    } catch (error) {
-      console.error('Error signing up with Google', error);
+    } catch (error: any) {
+      console.error('Error signing up', error);
+      toast({
+        title: 'Sign Up Error',
+        description: error.message || 'An unknown error occurred.',
+        variant: 'destructive',
+      });
     }
   };
 
-  if (loading || user) {
+  if (isUserLoading || user) {
     return (
       <div className="flex h-screen w-full items-center justify-center bg-background">
         <div className="h-10 w-10 animate-spin rounded-full border-4 border-primary border-t-transparent" />
@@ -49,22 +91,58 @@ export default function RegisterPage() {
           <p className="mt-2 text-lg text-muted-foreground">Get started with TaskMaster Pro.</p>
         </div>
         <div className="rounded-lg border bg-card p-6 shadow-sm">
-          <div className="space-y-4">
-            <Button
-              onClick={handleSignUp}
-              className="w-full"
-              size="lg"
-            >
-              <ChromeIcon className="mr-2 h-5 w-5" />
-              Sign up with Google
-            </Button>
-             <p className="text-center text-sm text-muted-foreground">
-              Already have an account?{' '}
-              <Link href="/login" className="font-semibold text-primary hover:underline">
-                Login
-              </Link>
-            </p>
-          </div>
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(handleSignUp)} className="space-y-4">
+              <FormField
+                control={form.control}
+                name="username"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Username</FormLabel>
+                    <FormControl>
+                      <Input placeholder="yourusername" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Email</FormLabel>
+                    <FormControl>
+                      <Input type="email" placeholder="you@example.com" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="password"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Password</FormLabel>
+                    <FormControl>
+                      <Input type="password" placeholder="••••••••" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <Button type="submit" className="w-full" size="lg" disabled={form.formState.isSubmitting}>
+                {form.formState.isSubmitting ? 'Creating Account...' : 'Create Account'}
+              </Button>
+              <p className="text-center text-sm text-muted-foreground">
+                Already have an account?{' '}
+                <Link href="/login" className="font-semibold text-primary hover:underline">
+                  Login
+                </Link>
+              </p>
+            </form>
+          </Form>
         </div>
       </div>
     </div>
