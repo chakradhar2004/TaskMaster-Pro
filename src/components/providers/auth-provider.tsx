@@ -3,7 +3,8 @@
 import type { User } from 'firebase/auth';
 import { createContext, useContext, useEffect, useState } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from '@/lib/firebase/config';
+import { getClientServices } from '@/lib/firebase/config';
+import type { FirebaseOptions } from 'firebase/app';
 
 type AuthContextType = {
   user: User | null;
@@ -17,10 +18,18 @@ const AuthContext = createContext<AuthContextType>({
   idToken: null,
 });
 
-export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
+export const AuthProvider = ({ 
+  children,
+  firebaseConfig
+}: { 
+  children: React.ReactNode,
+  firebaseConfig: FirebaseOptions
+}) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [idToken, setIdToken] = useState<string | null>(null);
+
+  const { auth } = getClientServices();
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -36,7 +45,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     });
 
     return () => unsubscribe();
-  }, []);
+  }, [auth]);
 
   return (
     <AuthContext.Provider value={{ user, loading, idToken }}>
