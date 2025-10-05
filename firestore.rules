@@ -7,93 +7,72 @@
  *
  * Data Structure:
  * - /users/{userId}: Stores user profile information.
- * - /users/{userId}/tasks/{taskId}: Stores tasks belonging to a specific user. Each task document contains a `userId` field that MUST match the `userId` in the path.
+ * - /users/{userId}/tasks/{taskId}: Stores tasks belonging to a specific user. Each task contains the `userId` as a field for efficient owner validation.
  *
  * Key Security Decisions:
- * - Users can only read and write their own user profile.
- * - Users can only create, read, update, and delete tasks under their own user ID.
- * - Listing all users is disallowed.
- *
- * Denormalization for Authorization:
- * - The `Task` entity denormalizes the `userId` field, allowing for simple ownership checks on the task documents themselves (e.g., `resource.data.userId == request.auth.uid`).
+ * - User listing is explicitly disallowed.
+ * - Tasks are owned by the user ID present in the path and must match the `userId` field inside the Task document.
+ * - Write operations to `/users/{userId}` documents are only allowed if the authenticated user's ID matches the `userId` in the path, creating a self-creation and ownership model. Updates are only allowed by the owning user.
+ * - Write operations to `/users/{userId}/tasks/{taskId}` documents are only allowed if the authenticated user's ID matches the `userId` in the path, enforcing task ownership.
  */
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
     /**
-     * @description Secures the user profiles. Only the authenticated user can read and write their own profile.
+     * @description Secures user profiles, ensuring users can only access their own profile data.
      * @path /users/{userId}
-     * @allow (create) - User 'testUser' with UID 'testUid' can create their own profile with matching ID.
-     *   Request: { "auth": { "uid": "testUid" }, "resource.data.id": "testUid" }
-     * @allow (get) - User 'testUser' with UID 'testUid' can get their own profile.
-     *   Request: { "auth": { "uid": "testUid" } }
-     * @allow (update) - User 'testUser' with UID 'testUid' can update their own profile.
-     *   Request: { "auth": { "uid": "testUid" } }
-     * @allow (delete) - User 'testUser' with UID 'testUid' can delete their own profile.
-     *   Request: { "auth": { "uid": "testUid" } }
-     * @deny (create) - User 'otherUser' with UID 'otherUid' cannot create a profile for 'testUser'.
-     *   Request: { "auth": { "uid": "otherUid" }, "resource.data.id": "testUid" }
-     * @deny (get) - User 'otherUser' with UID 'otherUid' cannot get 'testUser's profile.
-     *   Request: { "auth": { "uid": "otherUid" } }
-     * @deny (update) - User 'otherUser' with UID 'otherUid' cannot update 'testUser's profile.
-     *   Request: { "auth": { "uid": "otherUid" } }
-     * @deny (delete) - User 'otherUser' with UID 'otherUid' cannot delete 'testUser's profile.
-     *   Request: { "auth": { "uid": "otherUid" } }
-     * @principle Enforces strict user ownership for profile data.
+     * @allow (create) User with UID 'user123' can create their profile at /users/user123.
+     * @allow (update) User with UID 'user123' can update their profile at /users/user123.
+     * @allow (get) User with UID 'user123' can get their profile at /users/user123.
+     * @deny (create) User with UID 'user123' cannot create a profile at /users/user456.
+     * @deny (update) User with UID 'user123' cannot update the profile at /users/user456.
+     * @deny (get) User with UID 'user123' cannot get the profile at /users/user456.
+     * @deny (list) No one can list all users.
+     * @principle Enforces document ownership for all operations.
      */
     match /users/{userId} {
+      function isSignedIn() {
+        return request.auth != null;
+      }
+
+      function isOwner(userId) {
+        return request.auth.uid == userId;
+      }
+
       allow get: if isOwner(userId);
       allow list: if false;
-      allow create: if isOwner(userId) && request.resource.data.id == userId;
-      allow update: if isOwner(userId) && resource.data.id == request.resource.data.id;
-      allow delete: if isExistingOwner(userId);
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId);
+      allow delete: if isOwner(userId);
     }
 
     /**
-     * @description Secures the tasks subcollection. Only the owner of the task can create, read, update, and delete it.
+     * @description Secures tasks under a user's profile, ensuring only the owner can manage them.
      * @path /users/{userId}/tasks/{taskId}
-     * @allow (create) - User 'testUser' with UID 'testUid' can create a task under their profile, with matching userId.
-     *   Request: { "auth": { "uid": "testUid" }, "resource.data.userId": "testUid" }
-     * @allow (get) - User 'testUser' with UID 'testUid' can get a task under their profile.
-     *   Request: { "auth": { "uid": "testUid" } }
-     * @allow (list) - User 'testUser' with UID 'testUid' can list tasks under their profile.
-     *   Request: { "auth": { "uid": "testUid" } }
-     * @allow (update) - User 'testUser' with UID 'testUid' can update a task under their profile.
-     *   Request: { "auth": { "uid": "testUid" } }
-     * @allow (delete) - User 'testUser' with UID 'testUid' can delete a task under their profile.
-     *   Request: { "auth": { "uid": "testUid" } }
-     * @deny (create) - User 'otherUser' with UID 'otherUid' cannot create a task for 'testUser'.
-     *   Request: { "auth": { "uid": "otherUid" }, "resource.data.userId": "testUid" }
-     * @deny (get) - User 'otherUser' with UID 'otherUid' cannot get a task under 'testUser's profile.
-     *   Request: { "auth": { "uid": "otherUid" } }
-     * @deny (list) - User 'otherUser' with UID 'otherUid' cannot list tasks under 'testUser's profile.
-     *   Request: { "auth": { "uid": "otherUid" } }
-     * @deny (update) - User 'otherUser' with UID 'otherUid' cannot update a task under 'testUser's profile.
-     *   Request: { "auth": { "uid": "otherUid" } }
-     * @deny (delete) - User 'otherUser' with UID 'otherUid' cannot delete a task under 'testUser's profile.
-     *   Request: { "auth": { "uid": "otherUid" } }
-     * @principle Enforces strict user ownership for tasks within their profile.
+     * @allow (create) User with UID 'user123' can create a task at /users/user123/tasks/task456 where task.userId == 'user123'.
+     * @allow (update) User with UID 'user123' can update a task at /users/user123/tasks/task456 where task.userId == 'user123'.
+     * @allow (get) User with UID 'user123' can get a task at /users/user123/tasks/task456.
+     * @allow (list) User with UID 'user123' can list tasks at /users/user123/tasks.
+     * @deny (create) User with UID 'user123' cannot create a task at /users/user456/tasks/task456.
+     * @deny (update) User with UID 'user123' cannot update a task at /users/user456/tasks/task456.
+     * @deny (get) User with UID 'user123' cannot get a task at /users/user456/tasks/task456.
+     * @principle Enforces document ownership for all operations, validates the `userId` field on create.
      */
     match /users/{userId}/tasks/{taskId} {
+      function isSignedIn() {
+        return request.auth != null;
+      }
+
+      function isOwner(userId) {
+        return request.auth.uid == userId;
+      }
+
       allow get: if isOwner(userId);
-      allow list: if isOwner(userId);
-      allow create: if isOwner(userId) && request.resource.data.userId == userId;
-      allow update: if isOwner(userId) && resource != null;
-      allow delete: if isExistingOwner(userId);
+      allow list: if request.auth.uid == userId;
+      allow create: if isOwner(userId) && request.resource.data.get('userId') == userId;
+      allow update: if isOwner(userId) && request.resource.data.get('userId') == userId;
+      allow delete: if isOwner(userId);
     }
-  }
-
-  // Helper functions
-  function isSignedIn() {
-    return request.auth != null;
-  }
-
-  function isOwner(userId) {
-    return isSignedIn() && request.auth.uid == userId;
-  }
-
-  function isExistingOwner(userId) {
-    return isOwner(userId) && resource != null;
   }
 }
