@@ -2,77 +2,116 @@
  * @fileoverview Firestore Security Rules for TaskMaster Pro.
  *
  * Core Philosophy:
- * This ruleset enforces a strict user-ownership model for both user profiles and tasks.
- * Each user can only access their own data, and tasks are secured under their respective user profiles.
+ * This ruleset enforces a strict user-ownership model, where users can only
+ * access their own profile data and the tasks associated with their account.
  *
  * Data Structure:
  * - /users/{userId}: Stores user profile information.
- * - /users/{userId}/tasks/{taskId}: Stores tasks belonging to a specific user. Each task contains the `userId` as a field for efficient owner validation.
+ * - /users/{userId}/tasks/{taskId}: Stores tasks belonging to a specific user.
+ *   Each task document MUST contain a `userId` field matching the `userId`
+ *   in the path to enforce ownership.
  *
  * Key Security Decisions:
- * - User listing is explicitly disallowed.
- * - Tasks are owned by the user ID present in the path and must match the `userId` field inside the Task document.
- * - Write operations to `/users/{userId}` documents are only allowed if the authenticated user's ID matches the `userId` in the path, creating a self-creation and ownership model. Updates are only allowed by the owning user.
- * - Write operations to `/users/{userId}/tasks/{taskId}` documents are only allowed if the authenticated user's ID matches the `userId` in the path, enforcing task ownership.
+ * - Users can only create their own profile.
+ * - Users can only manage (create, update, delete) tasks under their own user ID.
+ * - Listing all users is disallowed.
+ *
+ * Denormalization for Authorization:
+ * - The `Task` documents in `/users/{userId}/tasks/{taskId}` include a `userId`
+ *   field. This denormalization is CRUCIAL. It allows security rules to
+ *   verify task ownership directly on the task document without needing
+ *   expensive `get()` operations to the parent `/users/{userId}` document.
  */
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
     /**
-     * @description Secures user profiles, ensuring users can only access their own profile data.
+     * @description Protects the user profile collection.
      * @path /users/{userId}
-     * @allow (create) User with UID 'user123' can create their profile at /users/user123.
-     * @allow (update) User with UID 'user123' can update their profile at /users/user123.
-     * @allow (get) User with UID 'user123' can get their profile at /users/user123.
-     * @deny (create) User with UID 'user123' cannot create a profile at /users/user456.
-     * @deny (update) User with UID 'user123' cannot update the profile at /users/user456.
-     * @deny (get) User with UID 'user123' cannot get the profile at /users/user456.
-     * @deny (list) No one can list all users.
-     * @principle Enforces document ownership for all operations.
+     * @allow (create) - User with ID 'user123' can create their profile.
+     *   Request: { auth: { uid: 'user123' }, path: '/databases/(default)/documents/users/user123', method: 'create', resource: { data: { id: 'user123', username: 'testuser', email: 'test@example.com' } } }
+     * @allow (get) - User with ID 'user123' can read their profile.
+     *   Request: { auth: { uid: 'user123' }, path: '/databases/(default)/documents/users/user123', method: 'get' }
+     * @allow (update) - User with ID 'user123' can update their profile.
+     *   Request: { auth: { uid: 'user123' }, path: '/databases/(default)/documents/users/user123', method: 'update', resource: { data: { id: 'user123', username: 'newname', email: 'test@example.com' } } }
+     * @allow (delete) - User with ID 'user123' can delete their profile.
+     *   Request: { auth: { uid: 'user123' }, path: '/databases/(default)/documents/users/user123', method: 'delete' }
+     * @deny (create) - User with ID 'user456' cannot create a profile for 'user123'.
+     *   Request: { auth: { uid: 'user456' }, path: '/databases/(default)/documents/users/user123', method: 'create', resource: { data: { id: 'user123', username: 'testuser', email: 'test@example.com' } } }
+     * @deny (get) - User with ID 'user456' cannot read the profile of 'user123'.
+     *   Request: { auth: { uid: 'user456' }, path: '/databases/(default)/documents/users/user123', method: 'get' }
+     * @deny (update) - User with ID 'user456' cannot update the profile of 'user123'.
+     *   Request: { auth: { uid: 'user456' }, path: '/databases/(default)/documents/users/user123', method: 'update', resource: { data: { id: 'user123', username: 'newname', email: 'test@example.com' } } }
+     * @deny (delete) - User with ID 'user456' cannot delete the profile of 'user123'.
+     *   Request: { auth: { uid: 'user456' }, path: '/databases/(default)/documents/users/user123', method: 'delete' }
+     * @principle Enforces document ownership and prevents unauthorized access to user profiles.
      */
     match /users/{userId} {
+      //function to check if the user is signed in
       function isSignedIn() {
         return request.auth != null;
       }
 
+      //function to check if the user id in the path matches the user id in the auth
       function isOwner(userId) {
-        return request.auth.uid == userId;
+        return isSignedIn() && request.auth.uid == userId;
       }
 
+      //function to check if the user id in the path matches the user id in the auth and the resource exists.
+      function isExistingOwner(userId) {
+        return isOwner(userId) && resource != null;
+      }
+
+      allow create: if isOwner(userId) && request.resource.data.id == userId;
       allow get: if isOwner(userId);
+      allow update: if isExistingOwner(userId) && request.resource.data.id == resource.data.id;
+      allow delete: if isExistingOwner(userId);
       allow list: if false;
-      allow create: if isOwner(userId);
-      allow update: if isOwner(userId);
-      allow delete: if isOwner(userId);
     }
 
     /**
-     * @description Secures tasks under a user's profile, ensuring only the owner can manage them.
+     * @description Protects the tasks subcollection under a user profile.
      * @path /users/{userId}/tasks/{taskId}
-     * @allow (create) User with UID 'user123' can create a task at /users/user123/tasks/task456 where task.userId == 'user123'.
-     * @allow (update) User with UID 'user123' can update a task at /users/user123/tasks/task456 where task.userId == 'user123'.
-     * @allow (get) User with UID 'user123' can get a task at /users/user123/tasks/task456.
-     * @allow (list) User with UID 'user123' can list tasks at /users/user123/tasks.
-     * @deny (create) User with UID 'user123' cannot create a task at /users/user456/tasks/task456.
-     * @deny (update) User with UID 'user123' cannot update a task at /users/user456/tasks/task456.
-     * @deny (get) User with UID 'user123' cannot get a task at /users/user456/tasks/task456.
-     * @principle Enforces document ownership for all operations, validates the `userId` field on create.
+     * @allow (create) - User with ID 'user123' can create a task under their profile.
+     *   Request: { auth: { uid: 'user123' }, path: '/databases/(default)/documents/users/user123/tasks/task456', method: 'create', resource: { data: { userId: 'user123', title: 'My Task', status: 'Open', dueDate: '2024-01-01' } } }
+     * @allow (get) - User with ID 'user123' can read a task under their profile.
+     *   Request: { auth: { uid: 'user123' }, path: '/databases/(default)/documents/users/user123/tasks/task456', method: 'get' }
+     * @allow (update) - User with ID 'user123' can update a task under their profile.
+     *   Request: { auth: { uid: 'user123' }, path: '/databases/(default)/documents/users/user123/tasks/task456', method: 'update', resource: { data: { userId: 'user123', title: 'Updated Task', status: 'In Progress', dueDate: '2024-01-05' } } }
+     * @allow (delete) - User with ID 'user123' can delete a task under their profile.
+     *   Request: { auth: { uid: 'user123' }, path: '/databases/(default)/documents/users/user123/tasks/task456', method: 'delete' }
+     * @deny (create) - User with ID 'user456' cannot create a task under the profile of 'user123'.
+     *   Request: { auth: { uid: 'user456' }, path: '/databases/(default)/documents/users/user123/tasks/task456', method: 'create', resource: { data: { userId: 'user123', title: 'My Task', status: 'Open', dueDate: '2024-01-01' } } }
+     * @deny (get) - User with ID 'user456' cannot read a task under the profile of 'user123'.
+     *   Request: { auth: { uid: 'user456' }, path: '/databases/(default)/documents/users/user123/tasks/task456', method: 'get' }
+     * @deny (update) - User with ID 'user456' cannot update a task under the profile of 'user123'.
+     *   Request: { auth: { uid: 'user456' }, path: '/databases/(default)/documents/users/user123/tasks/task456', method: 'update', resource: { data: { userId: 'user123', title: 'Updated Task', status: 'In Progress', dueDate: '2024-01-05' } } }
+     * @deny (delete) - User with ID 'user456' cannot delete a task under the profile of 'user123'.
+     *   Request: { auth: { uid: 'user456' }, path: '/databases/(default)/documents/users/user123/tasks/task456', method: 'delete' }
+     * @principle Enforces document ownership and prevents unauthorized access to tasks.
      */
     match /users/{userId}/tasks/{taskId} {
+      //function to check if the user is signed in
       function isSignedIn() {
         return request.auth != null;
       }
 
+      //function to check if the user id in the path matches the user id in the auth
       function isOwner(userId) {
-        return request.auth.uid == userId;
+        return isSignedIn() && request.auth.uid == userId;
       }
 
+      //function to check if the user id in the path matches the user id in the auth and the resource exists.
+      function isExistingOwner(userId) {
+        return isOwner(userId) && resource != null;
+      }
+
+      allow create: if isOwner(userId) && request.resource.data.userId == userId;
       allow get: if isOwner(userId);
-      allow list: if request.auth.uid == userId;
-      allow create: if isOwner(userId) && request.resource.data.get('userId') == userId;
-      allow update: if isOwner(userId) && request.resource.data.get('userId') == userId;
-      allow delete: if isOwner(userId);
+      allow update: if isExistingOwner(userId) && request.resource.data.userId == resource.data.userId;
+      allow delete: if isExistingOwner(userId);
+      allow list: if isOwner(userId);
     }
   }
 }
