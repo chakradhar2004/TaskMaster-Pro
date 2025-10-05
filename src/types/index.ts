@@ -8,6 +8,7 @@ const dateOrString = z.union([z.instanceof(Date), z.string(), z.instanceof(Times
 
 export const TaskSchema = z.object({
   id: z.string(),
+  userId: z.string(),
   title: z.string().min(1, 'Title is required'),
   description: z.string().nullish(),
   status: z.enum(taskStatus).default('To Do'),
