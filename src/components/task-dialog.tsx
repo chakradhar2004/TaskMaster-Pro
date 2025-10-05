@@ -96,6 +96,7 @@ export default function TaskDialog({ isOpen, onClose, task }: TaskDialogProps) {
         const tasksCollectionRef = collection(firestore, 'users', user.uid, 'tasks');
         await addDocumentNonBlocking(tasksCollectionRef, {
           ...data,
+          userId: user.uid, // Add userId to the task data
           createdAt: serverTimestamp(),
           dueDate: data.dueDate ? data.dueDate.toISOString() : null
         });

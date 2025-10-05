@@ -2,86 +2,79 @@
  * @fileoverview Firestore Security Rules for TaskMaster Pro.
  *
  * Core Philosophy:
- * This ruleset enforces a strict user-ownership model for tasks. Users can only
- * access their own user profile and the tasks associated with their user ID.
+ * This ruleset enforces a strict user-ownership model for both user profiles and tasks.
+ * Users can only access their own profiles and tasks.
  *
  * Data Structure:
- * - /users/{userId}: Stores user profiles.
- * - /users/{userId}/tasks/{taskId}: Stores tasks owned by a specific user.
+ * - /users/{userId}: Stores user profile information.
+ * - /users/{userId}/tasks/{taskId}: Stores tasks associated with each user.
  *
  * Key Security Decisions:
- * - User listing is disallowed.
- * - Tasks are owned by a user, enforced via the path and a `userId` field on the task.
- * - Data validation is relaxed for rapid prototyping but enforces ownership.
+ * - User listing is disallowed to protect user privacy.
+ * - Tasks are stored as subcollections of users to ensure clear ownership.
+ * - All write operations are validated against the authenticated user's ID.
  *
  * Denormalization for Authorization:
- * - Each task document includes the `userId` of its owner, enabling direct
- *   ownership checks without additional `get()` calls. This improves performance
- *   and simplifies the security rules.
- *
- * Structural Segregation:
- * - Private user data is stored under the /users/{userId} path, ensuring it's
- *   only accessible to the user.
+ * - Tasks contain a `userId` field, which duplicates the user ID from the path. This allows
+ *   rules to quickly verify ownership without needing to perform additional reads.
  */
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
     /**
-     * @description Enforces that only the authenticated user can read or write their own user document.
+     * @description Secures user profiles, allowing only the owner to read and write.
      * @path /users/{userId}
-     * @allow (get) Authenticated user reads their own profile.
-     * @allow (create) Authenticated user creates their own profile.
-     * @allow (update) Authenticated user updates their own profile.
-     * @allow (delete) Authenticated user deletes their own profile.
-     * @deny (get) Authenticated user tries to read another user's profile.
-     * @deny (create) Authenticated user tries to create another user's profile.
-     * @principle Enforces document ownership for all operations.
+     * @allow (get, create, update, delete) if the user is signed in and the userId matches the authenticated user's ID.
+     *   Example: A user with UID "user123" can read, create, update, and delete the document at /users/user123.
+     * @deny (get, create, update, delete) if the user is not signed in or the userId does not match the authenticated user's ID.
+     *   Example: A user with UID "user456" cannot access /users/user123.
+     * @principle Enforces document ownership and prevents unauthorized access to user profiles.
      */
     match /users/{userId} {
       function isSignedIn() {
         return request.auth != null;
       }
-
       function isOwner(userId) {
         return request.auth.uid == userId;
       }
+      function isExistingOwner(userId) {
+        return isOwner(userId) && resource != null;
+      }
 
-      allow get: if isSignedIn() && isOwner(userId);
+      allow get: if isOwner(userId);
       allow list: if false;
-      allow create: if isSignedIn() && isOwner(userId);
-      allow update: if isSignedIn() && isOwner(userId);
-      allow delete: if isSignedIn() && isOwner(userId);
+
+      allow create: if isSignedIn() && isOwner(userId) && request.resource.data.id == userId;
+      allow update: if isExistingOwner(userId) && request.resource.data.id == resource.data.id;
+      allow delete: if isExistingOwner(userId);
     }
 
     /**
-     * @description Enforces that only the owner can manage their tasks.
+     * @description Secures tasks, allowing only the task owner to read and write.
      * @path /users/{userId}/tasks/{taskId}
-     * @allow (create) Authenticated user creates a task with their user ID.
-     * @allow (get) Authenticated user reads their own task.
-     * @allow (update) Authenticated user updates their own task.
-     * @allow (delete) Authenticated user deletes their own task.
-     * @deny (create) Authenticated user tries to create a task for another user.
-     * @deny (update) Authenticated user tries to update another user's task.
-     * @principle Enforces document ownership and referential integrity.
+     * @allow (get, list, create, update, delete) if the user is signed in and the userId matches the authenticated user's ID and the task's userId field.
+     *   Example: A user with UID "user123" can read, create, update, and delete a task at /users/user123/tasks/task456 if the task's userId field also contains "user123".
+     * @deny (get, list, create, update, delete) if the user is not signed in or the userId does not match the authenticated user's ID or the task's userId field.
+     *   Example: A user with UID "user456" cannot access /users/user123/tasks/task456.
+     * @principle Enforces document ownership and prevents unauthorized access to tasks.
      */
     match /users/{userId}/tasks/{taskId} {
       function isSignedIn() {
         return request.auth != null;
       }
-
       function isOwner(userId) {
         return request.auth.uid == userId;
       }
-
       function isExistingOwner(userId) {
-          return isOwner(userId) && resource != null;
+        return isOwner(userId) && resource != null;
       }
 
-      allow get: if isSignedIn() && isOwner(userId);
-      allow list: if isSignedIn() && isOwner(userId);
-      allow create: if isSignedIn() && isOwner(userId) && request.resource.data.userId == request.auth.uid;
-      allow update: if isExistingOwner(userId) && resource.data.userId == request.resource.data.userId;
+      allow get: if isOwner(userId);
+      allow list: if isOwner(userId);
+
+      allow create: if isSignedIn() && isOwner(userId) && request.resource.data.userId == userId;
+      allow update: if isExistingOwner(userId) && request.resource.data.userId == resource.data.userId;
       allow delete: if isExistingOwner(userId);
     }
   }
